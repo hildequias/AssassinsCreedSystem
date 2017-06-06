@@ -10,6 +10,7 @@ public class WallClimber : MonoBehaviour {
     public float CoolDown = 0.15f;
     public float MaxAngle = 30;
     public float ClimbRange = 2f;
+    public float JumpForce = 1f;
 
     public Climbingsort currentSort;
 
@@ -21,8 +22,11 @@ public class WallClimber : MonoBehaviour {
     public ThirdPersonCharacter TPC;
     public Vector3 VerticalHandOffset;
     public Vector3 HorizontalHandOffset;
+    public Vector3 FallHandOffset;
+    public Vector3 RayCastPosition;
     public LayerMask SpotLayer;
     public LayerMask CurrentSpotLayer;
+    public LayerMask CheckLayersForObstacle;
     public LayerMask CheckLayersReachable;
 
     private Vector3 TargetPoint;
@@ -41,8 +45,67 @@ public class WallClimber : MonoBehaviour {
 	
 	// Update is called once per frame
 	void Update () {
-		
+		if(currentSort == Climbingsort.Walking && Input.GetAxis("Vertical") > 0)
+            StartClimbing();
+
+        if (currentSort == Climbingsort.Climbing)
+            Climb();
+
+        UpdateStats();
+
+        if (currentSort == Climbingsort.ClimbingTowardsPoint || currentSort == Climbingsort.ClimbingTowardsPlateau)
+            MoveTowardsPoint();
+
+        if (currentSort == Climbingsort.Jumping || currentSort == Climbingsort.Falling)
+            Jumping();
 	}
+
+    public void UpdateStats()
+    {
+        if(currentSort != Climbingsort.Walking && TPC.m_IsGrounded && currentSort != Climbingsort.ClimbingTowardsPoint)
+        {
+            currentSort = Climbingsort.Walking;
+            TPUC.enabled = true;
+            rigid.isKinematic = false;
+        }
+
+        if (currentSort == Climbingsort.Walking && !TPC.m_IsGrounded)
+            currentSort = Climbingsort.Jumping;
+
+        //CheckForClimbStart
+    }
+
+    public void StartClimbing()
+    {
+        if(Physics.Raycast(transform.position + transform.rotation * RayCastPosition, transform.forward, 0.4f) && Time.time - lastTime > CoolDown && currentSort == Climbingsort.Walking)
+        {
+            if (currentSort == Climbingsort.Walking)
+                rigid.AddForce(transform.up * JumpForce);
+
+            lastTime = Time.time;
+        }
+    }
+
+    public void Jumping()
+    {
+        if(rigid.velocity.y < 0 && currentSort != Climbingsort.Falling)
+        {
+            currentSort = Climbingsort.Falling;
+            oldRotation = transform.rotation;
+        }
+
+        if (rigid.velocity.y > 0 && currentSort != Climbingsort.Jumping)
+            currentSort = Climbingsort.Jumping;
+
+        if (currentSort == Climbingsort.Jumping)
+            CheckForSpots(HandTrans.position + FallHandOffset, -transform.up, 0.1f, CheckingSort.normal);
+
+        if(currentSort == Climbingsort.Falling)
+        {
+            CheckForSpots(HandTrans.position + FallHandOffset + transform.rotation * new Vector3(0.02f,-0.6f,0), -transform.up, 0.4f, CheckingSort.normal);
+            transform.rotation = oldRotation;
+        }
+    }
 
     public void Climb()
     {
@@ -51,7 +114,9 @@ public class WallClimber : MonoBehaviour {
             if(Input.GetAxis("Vertical") > 0)
             {
                 CheckForSpots(HandTrans.position + transform.rotation * VerticalHandOffset + transform.up * ClimbRange, -transform.up, ClimbRange, CheckingSort.normal);
-                //CheckForPlateay();
+
+                if (currentSort != Climbingsort.ClimbingTowardsPoint)
+                    CheckForPlateau();
             }
 
             if (Input.GetAxis("Vertical") < 0)
@@ -69,7 +134,7 @@ public class WallClimber : MonoBehaviour {
 
             if (Input.GetAxis("Horizontal") != 0)
             {
-                CheckForSpots(HandTrans.position - transform.rotation * HorizontalHandOffset, transform.right * Input.GetAxis("Horizontal") - transform.up / 3.5f, ClimbRange / 2, CheckingSort.normal );
+                CheckForSpots(HandTrans.position + transform.rotation * HorizontalHandOffset, transform.right * Input.GetAxis("Horizontal") - transform.up / 3.5f, ClimbRange / 2, CheckingSort.normal );
 
                 if(currentSort != Climbingsort.ClimbingTowardsPoint)
                     CheckForSpots(HandTrans.position + transform.rotation * HorizontalHandOffset, transform.right * Input.GetAxis("Horizontal") - transform.up / 1.5f, ClimbRange / 3, CheckingSort.normal);
@@ -126,7 +191,7 @@ public class WallClimber : MonoBehaviour {
         {
             if (Physics.Raycast(SpotLocation + transform.right * SmallesEdge / 2 + transform.forward * SmallesEdge, dir, out hit, range, SpotLayer))
             {
-                if (Vector3.Distance(HandTrans.position, hit.point) > minDistance)
+                if (Vector3.Distance(HandTrans.position, hit.point) - SmallesEdge / 1.5f > minDistance)
                 {
                     foundSpot = true;
 
@@ -139,7 +204,7 @@ public class WallClimber : MonoBehaviour {
         {
             if (Physics.Raycast(SpotLocation - transform.right * SmallesEdge / 2 + transform.forward * SmallesEdge, dir, out hit, range, SpotLayer))
             {
-                if (Vector3.Distance(HandTrans.position, hit.point) > minDistance)
+                if (Vector3.Distance(HandTrans.position, hit.point) - SmallesEdge / 1.5f > minDistance)
                 {
                     foundSpot = true;
 
@@ -174,6 +239,8 @@ public class WallClimber : MonoBehaviour {
                     TPC.m_IsGrounded = false;
                 }
                 currentSort = Climbingsort.ClimbingTowardsPoint;
+
+                BeginDistance = Vector3.Distance(transform.position, (TargetPoint - transform.rotation * HandTrans.localPosition));
             }
         }
     }
@@ -193,11 +260,11 @@ public class WallClimber : MonoBehaviour {
             curray.point = hit2.point;
             curray.normal = hit2.normal;
 
-            if (!Physics.Linecast(HandTrans.position + transform.rotation * new Vector3(0.05f, -0.05f), curray.point + new Vector3(0,0.5f,0), out hit2, CheckLayersReachable))
+            if (!Physics.Linecast(HandTrans.position + transform.rotation * new Vector3(0,0.05f, -0.05f), curray.point + new Vector3(0,0.5f,0), out hit2, CheckLayersReachable))
             {
-                if(!Physics.Linecast(curray.point - Quaternion.Euler(new Vector3(0,90,0)) * curray.normal * 0.35f + 0.1f * curray.point, curray.point + Quaternion.Euler(new Vector3(0, 90, 0)) * curray.normal * 0.35f + 0.1f * curray.point, out hit2, CheckLayersReachable))
+                if(!Physics.Linecast(curray.point - Quaternion.Euler(new Vector3(0,90,0)) * curray.normal * 0.35f + 0.1f * curray.normal, curray.point + Quaternion.Euler(new Vector3(0, 90, 0)) * curray.normal * 0.35f + 0.1f * curray.normal, out hit2, CheckLayersForObstacle))
                 {
-                    if (!Physics.Linecast(curray.point + Quaternion.Euler(new Vector3(0, 90, 0)) * curray.normal * 0.35f + 0.1f * curray.point, curray.point - Quaternion.Euler(new Vector3(0, 90, 0)) * curray.normal * 0.35f + 0.1f * curray.point, out hit2, CheckLayersReachable))
+                    if (!Physics.Linecast(curray.point + Quaternion.Euler(new Vector3(0, 90, 0)) * curray.normal * 0.35f + 0.1f * curray.normal, curray.point - Quaternion.Euler(new Vector3(0, 90, 0)) * curray.normal * 0.35f + 0.1f * curray.normal, out hit2, CheckLayersForObstacle))
                     {
                         curray.CanGoToPoint = true;
                     }
@@ -221,7 +288,6 @@ public class WallClimber : MonoBehaviour {
         }
         else
         {
-            curray.CanGoToPoint = false;
             trans.gameObject.layer = oldLayer;
             return curray;
         }
@@ -262,6 +328,24 @@ public class WallClimber : MonoBehaviour {
 
             rigid.isKinematic = false;
             TPUC.enabled = true;
+        }
+    }
+
+    public void CheckForPlateau()
+    {
+        RaycastHit hit2;
+        Vector3 dir = transform.up + transform.forward / 2;
+        if(!Physics.Raycast(HandTrans.position + transform.rotation * VerticalHandOffset, dir, out hit2, 1.5f, SpotLayer))
+        {
+            currentSort = Climbingsort.ClimbingTowardsPlateau;
+            if (Physics.Raycast(HandTrans.position + dir * 1.5f, -Vector3.up, out hit2, 1.7f, SpotLayer))
+                TargetPoint = HandTrans.position + dir * 1.5f;
+            else
+                TargetPoint = HandTrans.position + dir * 1.5f - transform.rotation * new Vector3(0, -0.2f, 0.25f);
+
+            TargetNormal = -transform.forward;
+            animator.SetBool("Crouch", true);
+            animator.SetBool("OnGround", true);
         }
     }
 }
