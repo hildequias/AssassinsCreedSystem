@@ -72,7 +72,8 @@ public class WallClimber : MonoBehaviour {
         if (currentSort == Climbingsort.Walking && !TPC.m_IsGrounded)
             currentSort = Climbingsort.Jumping;
 
-        //CheckForClimbStart
+        if (currentSort == Climbingsort.Walking && (Input.GetAxis("Vertical") != 0 || Input.GetAxis("Horizontal") != 0))
+            CheckForClimbStart();
     }
 
     public void StartClimbing()
@@ -328,6 +329,19 @@ public class WallClimber : MonoBehaviour {
 
             rigid.isKinematic = false;
             TPUC.enabled = true;
+        }
+    }
+
+    public void CheckForClimbStart()
+    {
+        RaycastHit hit2;
+        Vector3 dir = transform.forward - transform.up / 0.8f;
+
+        if(!Physics.Raycast(transform.position + transform.rotation * RayCastPosition, dir, 1.6f) && !Input.GetButton("Jump"))
+        {
+            currentSort = Climbingsort.checkingForClimbStart;
+            if (Physics.Raycast(transform.position + new Vector3(0, 1.1f, 0), -transform.up, out hit2, 1.6f, SpotLayer))
+                FindSpot(hit2, CheckingSort.falling);
         }
     }
 
